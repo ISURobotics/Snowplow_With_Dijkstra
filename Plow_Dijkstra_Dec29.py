@@ -36,6 +36,7 @@ def fixAngle(tol, wpX, wpY, xAct, yAct):
             #readline = arduino.readline()
             readline = 2.1
             sensact = float(readline)
+            break
         if sensact>180:
             sensact-=360
         thetaPlow = sensact+90
@@ -43,6 +44,7 @@ def fixAngle(tol, wpX, wpY, xAct, yAct):
             thetaPlow-=360
         thetaDesired = math.atan2(wpY-y,wpX-x)
         thetaDif = thetaPlow-thetaDesired
+        thetaDif = 0
         if not (abs(thetaDif)<tol or abs(thetaDif)>(360-tol)): #if not within the tolerance
             if not stateChange:
                 if thetaDif>180:
@@ -54,7 +56,7 @@ def fixAngle(tol, wpX, wpY, xAct, yAct):
                 if thetaDif<-180:
                     movementChar = 'r'
                 stateChange = True
-                arduino.write(movementChar)
+                #arduino.write(movementChar)
             if(counter%10==0):
                 print("Turn to the: " + movementChar)
                 print('thetaPlow: ' + str(thetaPlow)+' thetaDesired: ')+str(thetaDesired)+' thetaDif: ' + str(thetaDif)
@@ -82,7 +84,7 @@ buf = 1024
 addr = (host, port)
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.bind(("", 8090))
+s.bind(("", 8089))
 s.listen(5)
 
 #camera setup:
@@ -122,6 +124,8 @@ plt.ylim(-1,15)
 plt.scatter(xcoordlist,ycoordlist)
 plt.savefig('figure.png')
 
+stopsignCounter = 0
+
 for waypoint in waypoints:
     wpY = waypoint.x
     wpX = waypoint.y
@@ -129,6 +133,11 @@ for waypoint in waypoints:
     while True:
 #this chunk of code gets the location of the marker
         for frame in camera.capture_continuous(rawCapture, format = "bgr", use_video_port=True):
+            stopsignCounter +=1
+            StopSignChances = 1
+##            if stopsignCounter%10 != 0:
+##                rawCapture.truncate(0)
+##                break
             scene = frame.array
             #cv2.imshow("scene", scene)
             #key = cv2.waitKey(1) & 0xFF
@@ -138,22 +147,30 @@ for waypoint in waypoints:
             break
         if(StopSignChances<.15):
             #arduino.write('s')
-            print("Stop Sign Detected! Stopping for 15 seconds.")
-            time.sleep(15)
+            print("Stop Sign Detected!")
+            connection, address = s.accept()
+            data = connection.recv(128)
+            (xstr, zstr, ystr, IDstr) = data.split()
+            #time.sleep(15)
             continue
 
         connection, address = s.accept()
         data = connection.recv(128)
         (xstr, zstr, ystr, IDstr) = data.split() #note that our field coordinates are (x,y).
-        x = float(xstr)/39.4
-        y = float(ystr)/39.4
-        z = float(zstr)/39.4
-        ID = int(IDstr)
+        if xstr == 's':
+            print('No Aruco marker detected, stopping vehicle.')
+            continue
+        else:
+            x = float(xstr)/39.4
+            y = float(ystr)/39.4
+            z = float(zstr)/39.4
+            ID = int(IDstr)
 #This chunk of code corrects the marker location to the center of the "marker cube"
 #Assumes marker one is on the back of the plow, with three facing forward. If it was a compass, NWSE would be 3412.
         #while arduino.inWaiting():
         while True:
-            anglestr = arduino.readline()
+            #anglestr = arduino.readline()
+            anglestr = '5'
             ts = float(anglestr) #theta sensor in degrees
             act = ts+90 #plow angle in degrees (90 is straight up field)
             break
@@ -172,11 +189,11 @@ for waypoint in waypoints:
             if(headingCorrect): #If heading is correct, drive towards the waypoint.
                 print("Drive forward")
                 #arduino.write('f')
-                time.sleep(.25)
+                time.sleep(.1)
         else:   #If we're close enough, stop for two seconds. 
             #arduino.write('s')
             print('waypoint reached!')
-            time.sleep(2)
+            time.sleep(.5)
             break
 
     print('next wp')
